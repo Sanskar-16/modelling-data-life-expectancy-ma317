@@ -1,0 +1,456 @@
+#the package used to create a formal summary table 
+library(stargazer)
+
+#reading in the data
+lifeExpect1 = read.csv("../Life_Expectancy_Data1.csv")
+
+#First a few quick summaries of the data
+dim(lifeExpect1) # this tells us there are 217 rows and 29 columns
+attributes(lifeExpect1)
+
+#next looking at the variables more specifically
+str(lifeExpect1)
+summary(lifeExpect1)
+
+#we can create a nice output table for each variable using the stargazer package
+stargazer(lifeExpect1, type = "html", out = "../lifeExpectSummary.html")
+
+#to confirm, all of our predictor variables (besides country name and country code) seem to be continious
+#lets to a check on how many levels there are per variables
+sapply(lifeExpect1,function(x) length(unique(x)))
+
+#excluding re_energy/EG.FEC.RNEW.ZS (which is column with all missing), we can see that continent would be worth turing into
+#a factor within R
+table(lifeExpect1$Continent)
+
+#we can see that one value is left blank, lets look at the country name
+lifeExpect1[lifeExpect1$Continent == "",]$Country.Name
+#we can see that it's the Solomon Islands, therefore it's continent should be 'Australia/Oceania'
+lifeExpect1[lifeExpect1$Continent == "",]$Continent = "Australia/Oceania"
+
+#now lets look at the table again
+table(lifeExpect1$Continent)
+
+#good amount of observations per category, we shall keep all, time to convert
+lifeExpect1$Continent = as.factor(lifeExpect1$Continent)
+
+#the variable SP.POP.TOTL is in scientific notation format, we should convert this before going on so all continuous variables are
+#in the same format, this is done by changing the option of how R represents these variables
+options(scipen = 999)
+
+#The codebook/legend in the coursework tells us that SP.DYN.LE00.IN (SP.DYN.LE00.IN) is Life expectancy at birth, total (years)
+#Therefore SP.DYN.LE00.IN (SP.DYN.LE00.IN) is the variable we are interested in predicting/ the dependent variable
+summary(lifeExpect1$SP.DYN.LE00.IN)
+var(complete.cases(lifeExpect1$SP.DYN.LE00.IN))
+
+#creating a histogram of life expectancy (SP.DYN.LE00.IN) with bins of size 5 each.
+hist(lifeExpect1$SP.DYN.LE00.IN,
+     xlab = "Life Expectancy at Birth (years)",
+     main = "Histogram of Life Expectancy at Birth",
+     ylim = c(0,60),
+     labels = TRUE)
+
+#From the above histogram we can see that the mode bin is 75 - 80.
+
+#going forward, we should remove country name and country code from our dataset of variables to analyze since they
+#provide little to no usage in predicting future countries (a factor/categorical variable which has 1 unique value per
+#observation provides little/no insight for predictions)
+lifeExpect1.cnames = subset(lifeExpect1, select = c(Country.Name,Country.Code))
+lifeExpect1 = subset(lifeExpect1, select = -c(Country.Name,Country.Code))
+
+#after removing those vars, lets investigate the relationship between the dependent variable, SP.DYN.LE00.IN, and all predictor variables
+#to do this, we will write a function which we will loop all the variables though
+relationCheck = function(data){
+  
+  #removing the NA' values from the data/getting only the complete cases
+  data = na.omit(data)
+  
+  #create model and summary
+  model = lm(SP.DYN.LE00.IN ~ ., data = data)
+  print(summary(model))
+  
+  #we then get the relevant plots for the model to evaluate
+  plot(data[[names(data)[2]]],data[[names(data)[1]]],
+       xlab = names(data)[2],
+       ylab = names(data)[1])
+  abline(model,col=2,lwd=2)
+  
+  #Get plots for each linear model, uncomment to see all (produces alot of plots)
+  #plot(model)
+  
+}
+
+#Here we set a graphical setting to ask for user input before
+#each graph. 
+####Uncomment this if running this section to see all graphs!####
+#par(ask = T)
+
+#We then make a temp dataframe that doesn't include Continent and 
+#EG.FEC.RNEW.ZS since it has no values
+loopLifeExpect = subset(lifeExpect1,select = -c(Continent, EG.FEC.RNEW.ZS))
+
+#preforming a loop on lifeExpect so that we can view each continuous variables
+for (i in 1:ncol(loopLifeExpect)){
+  if (i != 1) {
+    relationCheck(subset(lifeExpect1, select = c(names(loopLifeExpect)[1],names(loopLifeExpect)[i])))
+  }
+}
+
+#remove the variable to avoid confusion in later parts
+rm(loopLifeExpect)
+
+#From these graphs we can see that the following variables have
+#a good linear relationship with Life Expectancy
+#We should look to keep these in a linear model
+#EG.ELC.ACCS.ZS
+#SP.DYN.IMRT.IN
+#SP.DYN.CBRT.IN
+#SE.PRM.CMPT.ZS
+#SP.POP.GROW
+
+#before modelling , we need to scale the continuous variables (excluding the dependant variable), can achieve this using a for loop
+for (i in names(lifeExpect1)) {
+  if (is.numeric(lifeExpect1[[i]]) & i != "SP.DYN.LE00.IN") {
+    lifeExpect1[[i]] = as.vector(scale(lifeExpect1[[i]]))
+  }
+}
+
+#now lets do a boxplot to check for outliers (excluding the dependent variable)
+boxplot(subset(lifeExpect1, select = -c(Continent, SP.DYN.LE00.IN)))
+
+#Using these boxplots and the previous linear graphs, we have
+#Some outliers we should remove to get better fits
+#SH.HIV.INCD.14, remove row (20000+)
+#SE.PRM.UNER, remove rows (1500000+)
+#EN.POP.DNST, remove rows (5000+)
+#SP.POP.TOTL, remove rows (1200000000+)
+#SH.XPD.CHEX.PC.CD, remove rows (~8000+)
+#NY.GDP.MKTP.KD.ZG, remove row (19+)
+#NY.GDP.PCAP.CD, remove rows (100000+)
+#SH.HIV.INCD, remove row (150000+)
+#SI.POV.LMIC, remove row (60+)
+
+summary(lifeExpect1)
+#From having a look at the summary, we can see that the some of the variables have a high amount of missing data
+#SH.HIV.INCD.14; c_hiv ( Children (ages 0-14) newly infected with HIV): NA = 127
+#SE.PRM.CUAT.ZS; pri_edu (Educational attainment, at least completed primary): NA = 181
+#SE.TER.CUAT.BA.ZS; bcs_edu (Educational attainment, at least Bachelor's or equivalent): NA = 179
+#SE.ADT.LITR.ZS; lit_rate  (Literacy rate, adult total): NA = 192
+#EG.FEC.RNEW.ZS; re_energy (Renewable energy consumption): NA = 217 (All is missing!)
+#SI.POV.LMIC; pov_head ( Poverty headcount ratio at \$3.20 a day): NA = 195
+
+#in part 2, we will tackle these missing values accordingly
+
+# library imports
+library(mice)
+
+# summarising the analysis
+attributes(lifeExpect1)
+str(lifeExpect1)
+head(lifeExpect1)
+summary(lifeExpect1)
+
+# removing these as all/most of the values are null(cut-ff threshold - >50%, ideally should be >30%)
+lifeExpect1$SH.HIV.INCD.14  <- NULL
+lifeExpect1$SE.PRM.UNER  <- NULL # might be important
+# lifeExpect1$SE.PRM.CUAT.ZS  <- NULL  
+lifeExpect1$SE.TER.CUAT.BA.ZS   <- NULL
+lifeExpect1$SE.PRM.CMPT.ZS   <- NULL # since we removed $SE.PRM.UNER
+lifeExpect1$SE.ADT.LITR.ZS  <- NULL
+lifeExpect1$FR.INR.RINR  <- NULL
+# lifeExpect1$SL.UEM.TOTL.NE.ZS  <- NULL might be imp
+lifeExpect1$EG.FEC.RNEW.ZS <- NULL
+lifeExpect1$SH.H2O.SMDW.ZS  <- NULL
+lifeExpect1$SH.HIV.INCD  <- NULL
+lifeExpect1$SI.POV.LMIC <- NULL
+summary(lifeExpect1)
+
+# Little EDA
+# creating a table format for the missing values, md.pattern visualises the table giving insight
+# into the number of missing values for every column
+dim(lifeExpect1)
+md.pattern(lifeExpect1, rotate.names = TRUE)
+
+# summing up the number of null values for all the columns
+colSums(is.na(lifeExpect1))
+
+# mice imputation
+my_imp = mice(lifeExpect1, m=5, 
+              method = c("", "cart","cart","cart","cart","cart",
+                         "cart","cart","cart","cart","cart","cart","cart",
+                         "cart","cart","cart","cart"),
+              maxit=10)
+
+# summary to inspect and assign the mean value for further inspection
+summary(lifeExpect1$SP.DYN.LE00.IN)
+
+meann <- as.numeric(format(round(summary(lifeExpect1$SP.DYN.LE00.IN)[4], 2)))
+
+# empty vector to hold difference values later
+a <- c()
+
+my_imp$imp$SP.DYN.LE00.IN
+
+# shows the mean values of the different variants of the imputed columns and 
+# assigns difference for further evaluation
+for(i in 1:5){
+  diff <- as.numeric(mean(my_imp$imp$SP.DYN.LE00.IN[,i])- meann)
+  print(
+    sprintf("%d column, mean:%.3f, diff:%.3f", i, mean(my_imp$imp$SP.DYN.LE00.IN[,i]), diff)
+  )
+  a[i] = diff
+}
+
+min = which(a == min(a))
+cat("The least differnce between the mean the the imputed values is shown in column:", min, '\n')
+
+final_clean_ds = complete(my_imp, min)
+
+# library imports
+library(corrplot)
+library(olsrr)
+
+tol_vif_plot <- function(pred_vars) {
+  #linear model between SP.DYN.LE00.IN (life expectancy) and all other predictive variables in the dataset
+  model = lm(pred_vars$SP.DYN.LE00.IN ~ ., data=pred_vars)
+  
+  #gets the tolerance and TIF values of the model
+  tol_vif_values <- ols_vif_tol(model)
+  
+  #displays the TIF and  Tolerance values
+  tol_vif_values
+  
+  #creates a new barplot for the TIF values
+  barplot(tol_vif_values$VIF, names.arg=tol_vif_values$Variables, las=2, main = "VIF Values", ylim = c(0, 20))
+  
+  #adds dashed lines to bar chart
+  abline(h = 5, lwd = 3, lty = 2,col = 'red')
+  abline(h = 10, lwd = 3, lty = 2,col = 'red')
+  
+  #creates a new barplot for the Tolerance values
+  barplot(tol_vif_values$Tolerance, names.arg=tol_vif_values$Variables, las=2, main = "Tolerance Values", ylim = c(0, 0.5))
+  
+  #adds dashed line to bar chart
+  abline(h = 0.1, lwd = 3, lty = 2,col = 'red')
+}
+
+par(mfrow=c(1,1))
+
+#create subsets, one of the predictive variables, one without
+pred_vars <- subset (final_clean_ds, select = -c(Continent))
+other_vars <- subset (final_clean_ds, select = c(Continent))
+
+#set all missing values to 0
+pred_vars[is.na(pred_vars)] <- 0
+
+#get correlation matrix for all predictive variables
+cor_matrix <-cor(pred_vars)
+
+#get a plot which shows the correlation matrix (titles on left and top, text color black, text size = 0.7)
+cor_plot <- corrplot.mixed(cor_matrix, tl.pos = "lt", lower.col = "black", number.cex = 0.7)
+
+#the variables with the highest correlation are NY.ADJ.NNTY.KD.ZG and NY.ADJ.NNTY.PC.KD.ZG
+cor(lifeExpect1$NY.ADJ.NNTY.KD.ZG, lifeExpect1$NY.ADJ.NNTY.PC.KD.ZG, method = "pearson", use = "complete.obs")
+
+#The very high correlation between some variables suggests there may be some collinearity in our data, especially when looking at NY.ADJ.NNTY.KD.ZG and NY.ADJ.NNTY.PC.KD.ZG
+
+tol_vif_plot(pred_vars)
+
+#when looking at our VIF values, we have two values above 10 which is not within tolerance, NY.ADJ.NNTY.KD.ZG and NY.ADJ.NNTY.PC.KD.ZG
+#when we look at the corresponding Tolerance stats, they are both below 0.1, which is also not within tolerance.
+
+#we choose to remove NY.ADJ.NNTY.PC.KD.ZG as it is the average value per capita, compared to the total amount.
+pred_vars <- subset (pred_vars, select = -c(NY.ADJ.NNTY.PC.KD.ZG))
+
+tol_vif_plot(pred_vars)
+
+#combining our variables
+final_clean_ds <- cbind(other_vars, pred_vars)
+
+reg_data <- final_clean_ds
+
+summary(final_clean_ds)
+
+# reg_data <- final_clean_ds[!names(final_clean_ds) %in% c("Country.Code", "Country.Name", "Continent")]
+reg_data <- final_clean_ds[!names(final_clean_ds) %in% c("Country.Code", "Country.Name")]
+
+
+library('MASS')
+library('leaps')
+library('caret')
+
+attach(reg_data, warn.conflicts = F)
+
+index <- createDataPartition(SP.DYN.LE00.IN , p=0.8, times = 1, list = F)
+
+reg_data_train <- reg_data[index,]
+reg_data_test <- reg_data[-index,]
+
+nrow(reg_data_train)
+nrow(reg_data_test)
+
+full_model <- lm(SP.DYN.LE00.IN ~ ., data = reg_data_train, x = T)
+
+null_model <- lm(SP.DYN.LE00.IN ~ 1, data = reg_data_train)
+
+# looks like 
+# Continent
+# SP.DYN.IMRT.IN
+# SP.POP.GROW
+# EN.POP.DNST
+# SH.XPD.CHEX.PC.CD
+# SP.DYN.CBRT.IN 
+
+# are the significant variables, taking a first look at the full model
+# interpreting lm summary https://stats.stackexchange.com/questions/5135/interpretation-of-rs-lm-output
+summary(full_model)
+
+# interpreting anova https://stats.stackexchange.com/questions/115304/interpreting-output-from-anova-when-using-lm-as-input
+anova(full_model)
+
+library(leaps) # step
+
+# our data is not that large and the number of predictors is also manageable, we
+# can use exhaustive search to find the best model given a metric
+
+# exhaustive sear via Mallow's Cp ==============================================
+X <- full_model$x
+y <- reg_data_train$SP.DYN.LE00.IN
+
+all_models <- leaps(X, y, int = F, strictly.compatible = F, method="Cp")
+
+# source: lab 3
+plot(all_models$size, all_models$Cp, log = "y", xlab = "|M|",
+     ylab = expression(c[p]), ylim = c(1,200))
+lines(all_models$size, all_models$size)
+
+min_cp_val <- all_models$Cp == min(all_models$Cp)
+min(all_models$Cp)
+min_cp <- all_models$which[min_cp_val, ]
+min_cp
+
+model_full_cp <- lm(SP.DYN.LE00.IN ~ Continent + EG.ELC.ACCS.ZS + 
+                      SP.DYN.IMRT.IN + SP.POP.GROW + EN.POP.DNST + 
+                      SH.XPD.CHEX.PC.CD + SP.DYN.CBRT.IN,
+                    data = reg_data_train)
+summary(model_full_cp)
+anova(model_full_cp)
+# testing wrapper methods ======================================================
+
+model_step_backward <- step(full_model, method = "backward")
+summary(model_step_backward)
+
+model_step_forward <- step(null_model, method = "forward",
+                           scope = 
+                             # the predictors signified as significant by the lm full_model 
+                             # summary
+                             ~ Continent + SP.DYN.IMRT.IN + SP.POP.GROW + 
+                             EN.POP.DNST + SH.XPD.CHEX.PC.CD + SP.DYN.CBRT.IN,
+                           data = reg_data_train)
+
+summary(model_step_forward)
+
+# Here I am testing out the forwards/backwards step-wise algorithm introduced
+# in the lecture
+motel_step_both <- stepAIC(full_model, directoin = "both") # worse than step forward
+summary(motel_step_both)
+
+# evaluation ===================================================================
+
+summary(full_model)
+summary(model_full_cp)
+summary(model_step_backward)
+summary(model_step_forward)
+summary(motel_step_both)
+
+anova(model_full_cp, full_model)
+anova(model_step_backward, full_model)
+anova(model_step_forward, full_model)
+anova(motel_step_both, full_model)
+
+reg_data_test$pred_red_SP.DYN.LE00.IN <- predict(model_full_cp, reg_data_test)
+reg_data_test$pred_ful_SP.DYN.LE00.IN <- predict(full_model, reg_data_test)
+
+RMSE(reg_data_test$pred_red_SP.DYN.LE00.IN, reg_data_test$SP.DYN.LE00.IN)
+# 1.472737
+R2(reg_data_test$pred_red_SP.DYN.LE00.IN, reg_data_test$SP.DYN.LE00.IN)
+# 0.9570669
+
+RMSE(reg_data_test$pred_ful_SP.DYN.LE00.IN, reg_data_test$SP.DYN.LE00.IN)
+# 1.482689
+R2(reg_data_test$pred_ful_SP.DYN.LE00.IN, reg_data_test$SP.DYN.LE00.IN)
+# 0.9569355
+
+layout(matrix(c(1,2,3,4),2,2)) # optional 4 graphs/page
+plot(full_model)
+
+# load libraries
+library(car)
+library(stats)
+
+par(mfrow=c(1,1))
+
+# checking the data and dimensions 
+head(final_clean_ds)
+dim(final_clean_ds)
+
+# one-way ANOVA ( differences in average life expectancy across the continents)
+life_expectancy <- final_clean_ds$SP.DYN.LE00.IN
+continent <- final_clean_ds$Continent
+
+# shows the average life expectancy across each continent
+group.means<-tapply(life_expectancy, continent, mean)
+group.means
+
+# boxplot to show the comparison of life expectancy within each continent
+boxplot(life_expectancy~continent,main='Comparing the life expectancy across continents',
+        xlab='Continent', col="light gray", ylab = "Life expectancy (age in years)",)
+
+# factor variables
+# final_clean_ds$Continent <- factor(final_clean_ds$Continent, levels=c("Africa","Asia","Australia/Oceania", "Europe", "North America", "South America"))
+
+anova1way<-aov(life_expectancy~as.factor(continent),data=final_clean_ds)
+summary(anova1way)
+
+# reject the null hypothesis because our P value in our ANOVA table is significant at the 0.001 level.
+
+# post-hoc tests
+cat("Bonferroni post-hoc test","\n")
+
+# Bonferroni post-hoc test
+pairwise.t.test(final_clean_ds$SP.DYN.LE00.IN, final_clean_ds$Continent, p.adj = "bonferroni")
+
+cat("\n","Tukey post-hoc test","\n")
+
+# Tukey post-hoc test
+tukey.continent<-TukeyHSD(anova1way)
+
+plot(tukey.continent)
+
+# As seen, the North-America - Asia is outside of the mean
+
+# one-way ANOVA assumptions
+final_clean_ds$residuals1<-anova1way$residuals
+par(mfrow=c(1,2))
+
+# standardised residuals histogram
+hist(final_clean_ds$residuals1, main="Standardised residuals-histogram",xlab="Standardised residuals")
+
+# qq plot
+qqnorm(final_clean_ds$residuals1,pch=19)
+qqline(final_clean_ds$residuals1)
+
+# Shapiro test
+shapiro.test(final_clean_ds$residuals1)
+
+# Shapiro test shows the data is/n't normally distributed
+
+# Bartlett test
+bartlett.test(final_clean_ds$residuals1~as.numeric(final_clean_ds$Continent))
+
+# levene Test
+leveneTest(life_expectancy~factor(final_clean_ds$Continent))
+
+# welche one-way ANOVA
+continent.welchtest<-oneway.test(life_expectancy~Continent,data=final_clean_ds)
+continent.welchtest
